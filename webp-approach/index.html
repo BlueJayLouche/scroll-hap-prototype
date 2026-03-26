@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scroll-Scrub Video (WebP Sequence)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #fff;
+        }
+
+        .hero-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        #canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .scroll-spacer {
+            height: 500vh; /* Creates scrollable area */
+        }
+
+        .overlay {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            font-size: 14px;
+            z-index: 100;
+        }
+
+        .overlay h1 {
+            font-size: 16px;
+            margin-bottom: 8px;
+            color: #4ade80;
+        }
+
+        .stats {
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 12px;
+            color: #888;
+            margin-top: 8px;
+        }
+
+        .stats span {
+            color: #fff;
+        }
+
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 200;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid #333;
+            border-top-color: #4ade80;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .drop-zone {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 2px dashed #444;
+            border-radius: 12px;
+            padding: 60px 80px;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.8);
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: #4ade80;
+            background: rgba(74, 222, 128, 0.05);
+        }
+
+        .drop-zone h2 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            font-weight: 400;
+        }
+
+        .drop-zone p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            opacity: 0.6;
+            font-size: 14px;
+            pointer-events: none;
+        }
+
+        .progress-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            height: 3px;
+            background: #4ade80;
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading" class="loading hidden">
+        <div class="loading-spinner"></div>
+        <p>Loading frames...</p>
+        <p id="loading-progress" class="stats">0 / 0</p>
+    </div>
+
+    <!-- Drop Zone -->
+    <div id="dropZone" class="drop-zone">
+        <h2>🎬 Drop a folder of WebP frames</h2>
+        <p>Or click to select a folder containing<br>frame_0000.webp, frame_0001.webp, etc.</p>
+        <p style="margin-top: 20px; font-size: 12px; color: #444;">
+            Tip: Use the included tool to convert video → WebP sequence
+        </p>
+    </div>
+
+    <!-- Video Canvas -->
+    <div class="hero-container">
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <!-- Overlay Stats -->
+    <div class="overlay">
+        <h1>WebP Sequence Approach</h1>
+        <div>Frame: <span id="frameDisplay">0</span> / <span id="totalFrames">0</span></div>
+        <div class="stats">
+            Resolution: <span id="resolution">-</span><br>
+            Memory: <span id="memory">-</span><br>
+            Load time: <span id="loadTime">-</span>
+        </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div id="progressBar" class="progress-bar"></div>
+
+    <!-- Scroll Instructions -->
+    <div id="instructions" class="instructions hidden">
+        Scroll to scrub through the video
+    </div>
+
+    <div class="scroll-spacer"></div>
+
+    <script>
+        // ============================================
+        // Scroll-Scrub Video Player (WebP Sequence)
+        // ============================================
+
+        class WebPSequencePlayer {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                this.frames = [];
+                this.currentFrame = 0;
+                this.isLoaded = false;
+                this.loadStartTime = 0;
+                
+                // Stats elements
+                this.frameDisplay = document.getElementById('frameDisplay');
+                this.totalFramesDisplay = document.getElementById('totalFrames');
+                this.resolutionDisplay = document.getElementById('resolution');
+                this.memoryDisplay = document.getElementById('memory');
+                this.loadTimeDisplay = document.getElementById('loadTime');
+                this.progressBar = document.getElementById('progressBar');
+                
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+                window.addEventListener('scroll', () => this.onScroll());
+            }
+
+            resize() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                if (this.isLoaded) {
+                    this.render();
+                }
+            }
+
+            async loadFrames(fileList) {
+                this.loadStartTime = performance.now();
+                
+                // Filter for WebP files and sort
+                const webpFiles = Array.from(fileList)
+                    .filter(f => f.name.endsWith('.webp') || f.name.endsWith('.png') || f.name.endsWith('.jpg'))
+                    .sort((a, b) => a.name.localeCompare(b.name));
+
+                if (webpFiles.length === 0) {
+                    alert('No image files found!');
+                    return;
+                }
+
+                this.showLoading();
+                this.frames = [];
+
+                // Load frames progressively
+                const batchSize = 10;
+                for (let i = 0; i < webpFiles.length; i += batchSize) {
+                    const batch = webpFiles.slice(i, i + batchSize);
+                    await Promise.all(batch.map((file, idx) => this.loadImage(file, i + idx)));
+                    
+                    this.updateLoadingProgress(i + batch.length, webpFiles.length);
+                }
+
+                this.isLoaded = true;
+                this.hideLoading();
+                this.updateStats();
+                this.render();
+                
+                // Calculate memory usage
+                this.updateMemoryStats();
+            }
+
+            loadImage(file, index) {
+                return new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        this.frames[index] = img;
+                        resolve();
+                    };
+                    img.onerror = reject;
+                    img.src = URL.createObjectURL(file);
+                });
+            }
+
+            showLoading() {
+                document.getElementById('loading').classList.remove('hidden');
+                document.getElementById('dropZone').classList.add('hidden');
+            }
+
+            hideLoading() {
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('instructions').classList.remove('hidden');
+            }
+
+            updateLoadingProgress(loaded, total) {
+                document.getElementById('loading-progress').textContent = `${loaded} / ${total}`;
+                this.totalFramesDisplay.textContent = total;
+            }
+
+            updateStats() {
+                if (this.frames.length === 0) return;
+                
+                const firstFrame = this.frames[0];
+                this.resolutionDisplay.textContent = `${firstFrame.naturalWidth}x${firstFrame.naturalHeight}`;
+                
+                const loadTime = (performance.now() - this.loadStartTime) / 1000;
+                this.loadTimeDisplay.textContent = `${loadTime.toFixed(2)}s`;
+            }
+
+            updateMemoryStats() {
+                // Rough estimate: width * height * 4 bytes per pixel
+                if (this.frames.length === 0) return;
+                
+                const firstFrame = this.frames[0];
+                const bytesPerFrame = firstFrame.naturalWidth * firstFrame.naturalHeight * 4;
+                const totalBytes = bytesPerFrame * this.frames.length;
+                const mb = (totalBytes / 1024 / 1024).toFixed(1);
+                
+                this.memoryDisplay.textContent = `~${mb} MB (est.)`;
+            }
+
+            onScroll() {
+                if (!this.isLoaded || this.frames.length === 0) return;
+
+                const scrollTop = window.scrollY;
+                const docHeight = document.body.scrollHeight - window.innerHeight;
+                const scrollProgress = Math.max(0, Math.min(1, scrollTop / docHeight));
+                
+                const frameIndex = Math.floor(scrollProgress * (this.frames.length - 1));
+                
+                if (frameIndex !== this.currentFrame && frameIndex < this.frames.length) {
+                    this.currentFrame = frameIndex;
+                    this.render();
+                }
+
+                // Update progress bar
+                this.progressBar.style.width = `${scrollProgress * 100}%`;
+            }
+
+            render() {
+                const img = this.frames[this.currentFrame];
+                if (!img) return;
+
+                this.frameDisplay.textContent = this.currentFrame + 1;
+
+                // Clear canvas
+                this.ctx.fillStyle = '#0a0a0a';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                // Calculate aspect-fit sizing
+                const scale = Math.min(
+                    this.canvas.width / img.naturalWidth,
+                    this.canvas.height / img.naturalHeight
+                );
+
+                const drawWidth = img.naturalWidth * scale;
+                const drawHeight = img.naturalHeight * scale;
+                const x = (this.canvas.width - drawWidth) / 2;
+                const y = (this.canvas.height - drawHeight) / 2;
+
+                this.ctx.drawImage(img, x, y, drawWidth, drawHeight);
+            }
+        }
+
+        // ============================================
+        // File Drop Handling
+        // ============================================
+
+        const player = new WebPSequencePlayer('canvas');
+        const dropZone = document.getElementById('dropZone');
+
+        // Prevent default browser drag/drop behavior globally
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            document.body.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            }, false);
+        });
+
+        // Drag & Drop handling
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+            }, false);
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('dragover');
+            
+            const items = e.dataTransfer.items;
+            const files = [];
+
+            if (items.length > 0) {
+                // Handle folder drop
+                const promises = [];
+                for (let i = 0; i < items.length; i++) {
+                    const item = items[i].webkitGetAsEntry();
+                    if (item) {
+                        promises.push(traverseDirectory(item, files));
+                    }
+                }
+
+                Promise.all(promises).then(() => {
+                    if (files.length > 0) {
+                        player.loadFrames(files);
+                    } else {
+                        // Try direct file drop
+                        const dtFiles = e.dataTransfer.files;
+                        if (dtFiles.length > 0) {
+                            player.loadFrames(Array.from(dtFiles));
+                        }
+                    }
+                });
+            } else {
+                // Fallback to files
+                const dtFiles = e.dataTransfer.files;
+                if (dtFiles.length > 0) {
+                    player.loadFrames(Array.from(dtFiles));
+                }
+            }
+        });
+
+        // Click to select folder
+        dropZone.addEventListener('click', (e) => {
+            if (e.target !== dropZone && !dropZone.contains(e.target)) return;
+            
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.webkitdirectory = true;
+            input.directory = true;
+            input.style.display = 'none';
+            
+            input.addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    player.loadFrames(e.target.files);
+                }
+            });
+            
+            document.body.appendChild(input);
+            input.click();
+            
+            setTimeout(() => {
+                if (input.parentNode) {
+                    document.body.removeChild(input);
+                }
+            }, 100);
+        });
+
+        // Helper to traverse directory
+        function traverseDirectory(entry, files) {
+            return new Promise((resolve) => {
+                if (entry.isFile) {
+                    entry.file((file) => {
+                        files.push(file);
+                        resolve();
+                    });
+                } else if (entry.isDirectory) {
+                    const reader = entry.createReader();
+                    reader.readEntries((entries) => {
+                        const promises = entries.map(e => traverseDirectory(e, files));
+                        Promise.all(promises).then(resolve);
+                    });
+                }
+            });
+        }
+
+        // Demo mode with placeholder animation if no file dropped
+        // (Shows a gradient that responds to scroll)
+        function showDemoMode() {
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            function drawDemoFrame() {
+                const scrollTop = window.scrollY;
+                const docHeight = document.body.scrollHeight - window.innerHeight;
+                const progress = scrollTop / docHeight;
+                
+                const hue = progress * 360;
+                const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+                gradient.addColorStop(0, `hsl(${hue}, 70%, 50%)`);
+                gradient.addColorStop(1, `hsl(${(hue + 180) % 360}, 70%, 50%)`);
+                
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                ctx.fillStyle = 'white';
+                ctx.font = '48px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('Demo Mode - Drop video frames', canvas.width / 2, canvas.height / 2);
+                
+                ctx.font = '24px sans-serif';
+                ctx.fillText(`Progress: ${(progress * 100).toFixed(1)}%`, canvas.width / 2, canvas.height / 2 + 50);
+            }
+
+            window.addEventListener('scroll', drawDemoFrame);
+            window.addEventListener('resize', () => {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                drawDemoFrame();
+            });
+            
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            drawDemoFrame();
+        }
+
+        // Initialize demo mode
+        showDemoMode();
+    </script>
+</body>
+</html>

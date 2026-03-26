@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scroll-Scrub Video Prototype</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+        }
+
+        h1 {
+            font-size: 48px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            text-align: center;
+            background: linear-gradient(135deg, #4ade80 0%, #60a5fa 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            font-size: 20px;
+            color: #888;
+            margin-bottom: 60px;
+            text-align: center;
+        }
+
+        .approaches {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 30px;
+            max-width: 1000px;
+            width: 100%;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 40px;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            color: inherit;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-4px);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .card-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            margin-right: 16px;
+        }
+
+        .card-icon.webp {
+            background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+        }
+
+        .card-icon.hap {
+            background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+        }
+
+        .card-title {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .card-subtitle {
+            font-size: 14px;
+            color: #888;
+            margin-top: 4px;
+        }
+
+        .card-description {
+            color: #aaa;
+            line-height: 1.6;
+            margin-bottom: 24px;
+            flex-grow: 1;
+        }
+
+        .features {
+            list-style: none;
+            margin-bottom: 24px;
+        }
+
+        .features li {
+            padding: 6px 0;
+            font-size: 14px;
+            color: #bbb;
+            display: flex;
+            align-items: center;
+        }
+
+        .features li::before {
+            content: "✓";
+            margin-right: 10px;
+            color: #4ade80;
+            font-weight: bold;
+        }
+
+        .card.hap .features li::before {
+            color: #60a5fa;
+        }
+
+        .cta-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 16px;
+            transition: all 0.2s;
+            border: none;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        .card.webp .cta-button {
+            background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+            color: #000;
+        }
+
+        .card.hap .cta-button {
+            background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+            color: #fff;
+        }
+
+        .cta-button:hover {
+            opacity: 0.9;
+            transform: scale(1.02);
+        }
+
+        .comparison {
+            margin-top: 60px;
+            max-width: 1000px;
+            width: 100%;
+        }
+
+        .comparison h2 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        th, td {
+            padding: 16px 20px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        th {
+            background: rgba(255, 255, 255, 0.05);
+            font-weight: 600;
+            color: #fff;
+        }
+
+        td {
+            color: #aaa;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .tag.good {
+            background: rgba(74, 222, 128, 0.15);
+            color: #4ade80;
+        }
+
+        .tag.warning {
+            background: rgba(251, 191, 36, 0.15);
+            color: #fbbf24;
+        }
+
+        .tag.bad {
+            background: rgba(248, 113, 113, 0.15);
+            color: #f87171;
+        }
+
+        footer {
+            margin-top: 60px;
+            color: #666;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        footer a {
+            color: #888;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            color: #fff;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 32px;
+            }
+
+            .approaches {
+                grid-template-columns: 1fr;
+            }
+
+            .card {
+                padding: 30px;
+            }
+
+            th, td {
+                padding: 12px;
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Scroll-Scrub Video</h1>
+    <p class="subtitle">Two approaches for buttery-smooth scroll-driven animation</p>
+
+    <div class="approaches">
+        <!-- WebP Approach -->
+        <a href="webp-approach/" class="card webp">
+            <div class="card-header">
+                <div class="card-icon webp">🖼️</div>
+                <div>
+                    <div class="card-title">WebP Sequence</div>
+                    <div class="card-subtitle">Simple & Reliable</div>
+                </div>
+            </div>
+            
+            <p class="card-description">
+                Convert video to WebP frames, preload them, and display on scroll. 
+                The simplest approach that works everywhere.
+            </p>
+
+            <ul class="features">
+                <li>No WASM complexity</li>
+                <li>Works in all browsers</li>
+                <li>Excellent WebP compression</li>
+                <li>Easy to implement</li>
+            </ul>
+
+            <div class="cta-button">Try WebP Demo →</div>
+        </a>
+
+        <!-- HAP Approach -->
+        <a href="hap-wasm-approach/" class="card hap">
+            <div class="card-header">
+                <div class="card-icon hap">🎬</div>
+                <div>
+                    <div class="card-title">HAP + WASM</div>
+                    <div class="card-subtitle">GPU-Accelerated</div>
+                </div>
+            </div>
+            
+            <p class="card-description">
+                Use your Rust HAP decoder compiled to WASM. Decode on-demand and 
+                upload compressed DXT textures directly to GPU.
+            </p>
+
+            <ul class="features">
+                <li>Extremely memory efficient</li>
+                <li>Handles 4K smoothly</li>
+                <li>Instant scrubbing</li>
+                <li>Silky GPU playback</li>
+            </ul>
+
+            <div class="cta-button">Try HAP Demo →</div>
+        </a>
+    </div>
+
+    <div class="comparison">
+        <h2>Quick Comparison</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>WebP Sequence</th>
+                    <th>HAP + WASM</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>1080p30, 5s Memory</td>
+                    <td><span class="tag warning">~150 MB</span></td>
+                    <td><span class="tag good">~20 MB</span></td>
+                </tr>
+                <tr>
+                    <td>Initial Load Time</td>
+                    <td><span class="tag bad">5-10 seconds</span></td>
+                    <td><span class="tag good">Instant</span></td>
+                </tr>
+                <tr>
+                    <td>4K Feasibility</td>
+                    <td><span class="tag bad">No</span></td>
+                    <td><span class="tag good">Yes</span></td>
+                </tr>
+                <tr>
+                    <td>60s Video Feasible</td>
+                    <td><span class="tag bad">No</span></td>
+                    <td><span class="tag good">Yes</span></td>
+                </tr>
+                <tr>
+                    <td>Implementation Complexity</td>
+                    <td><span class="tag good">Low</span></td>
+                    <td><span class="tag warning">Medium</span></td>
+                </tr>
+                <tr>
+                    <td>Browser Support</td>
+                    <td><span class="tag good">All modern</span></td>
+                    <td><span class="tag warning">WebGL 2 required</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <footer>
+        <p>Prototype comparing scroll-scrub video approaches using <a href="https://github.com/BlueJayLouche/hap-rs">hap-rs</a></p>
+        <p style="margin-top: 8px;">Built with Rust + WebAssembly</p>
+    </footer>
+
+    <script>
+        // Add some subtle animation to cards on load
+        document.querySelectorAll('.card').forEach((card, i) => {
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(20px)';
+            setTimeout(() => {
+                card.style.transition = 'all 0.5s ease';
+                card.style.opacity = '1';
+                card.style.transform = 'translateY(0)';
+            }, i * 150);
+        });
+    </script>
+</body>
+</html>

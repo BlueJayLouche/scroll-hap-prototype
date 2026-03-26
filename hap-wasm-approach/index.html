@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scroll-Scrub Video (HAP + WASM)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #fff;
+        }
+
+        .hero-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        #canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .scroll-spacer {
+            height: 500vh;
+        }
+
+        .overlay {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            font-size: 14px;
+            z-index: 100;
+        }
+
+        .overlay h1 {
+            font-size: 16px;
+            margin-bottom: 8px;
+            color: #60a5fa;
+        }
+
+        .stats {
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 12px;
+            color: #888;
+            margin-top: 8px;
+        }
+
+        .stats span {
+            color: #fff;
+        }
+
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 200;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid #333;
+            border-top-color: #60a5fa;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .drop-zone {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 2px dashed #444;
+            border-radius: 12px;
+            padding: 60px 80px;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.8);
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: #60a5fa;
+            background: rgba(96, 165, 250, 0.05);
+        }
+
+        .drop-zone h2 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            font-weight: 400;
+        }
+
+        .drop-zone p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            opacity: 0.6;
+            font-size: 14px;
+            pointer-events: none;
+        }
+
+        .progress-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            height: 3px;
+            background: #60a5fa;
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        .error-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(220, 38, 38, 0.9);
+            padding: 20px 30px;
+            border-radius: 8px;
+            text-align: center;
+            z-index: 300;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-left: 8px;
+        }
+
+        .badge.success {
+            background: #065f46;
+            color: #34d399;
+        }
+
+        .badge.warning {
+            background: #92400e;
+            color: #fbbf24;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading" class="loading hidden">
+        <div class="loading-spinner"></div>
+        <p>Loading HAP decoder...</p>
+    </div>
+
+    <!-- Error Message -->
+    <div id="error" class="error-message hidden">
+        <h3>Error</h3>
+        <p id="errorText">Something went wrong</p>
+    </div>
+
+    <!-- Drop Zone -->
+    <div id="dropZone" class="drop-zone">
+        <h2>🎬 Drop a HAP .mov file</h2>
+        <p>Or click to select a HAP-encoded QuickTime file</p>
+        <p style="margin-top: 20px; font-size: 12px; color: #444;">
+            Supports: Hap1, Hap5, HapY formats<br>
+            Uses WebGL compressed textures for GPU playback
+        </p>
+    </div>
+
+    <!-- Video Canvas -->
+    <div class="hero-container">
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <!-- Overlay Stats -->
+    <div class="overlay">
+        <h1>HAP + WASM Approach</h1>
+        <div>Frame: <span id="frameDisplay">0</span> / <span id="totalFrames">0</span></div>
+        <div class="stats">
+            Resolution: <span id="resolution">-</span><br>
+            Codec: <span id="codec">-</span> <span id="gpuBadge" class="badge hidden">GPU</span><br>
+            Decode: <span id="decodeTime">-</span>
+        </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div id="progressBar" class="progress-bar"></div>
+
+    <!-- Scroll Instructions -->
+    <div id="instructions" class="instructions hidden">
+        Scroll to scrub through the video
+    </div>
+
+    <div class="scroll-spacer"></div>
+
+    <script type="module">
+        // ============================================
+        // Scroll-Scrub HAP Video Player (WASM)
+        // ============================================
+
+        import init, { WebHapReader, wasm_log, check_compressed_texture_support } from './pkg/hap_wasm.js';
+
+        class HapWasmPlayer {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.gl = this.canvas.getContext('webgl2', {
+                    alpha: false,
+                    premultipliedAlpha: false,
+                    preserveDrawingBuffer: true
+                });
+                
+                this.reader = null;
+                this.currentFrame = 0;
+                this.isLoaded = false;
+                this.compressedTextureExt = null;
+                this.texture = null;
+                this.program = null;
+                
+                // Stats elements
+                this.frameDisplay = document.getElementById('frameDisplay');
+                this.totalFramesDisplay = document.getElementById('totalFrames');
+                this.resolutionDisplay = document.getElementById('resolution');
+                this.codecDisplay = document.getElementById('codec');
+                this.decodeTimeDisplay = document.getElementById('decodeTime');
+                this.progressBar = document.getElementById('progressBar');
+                this.gpuBadge = document.getElementById('gpuBadge');
+                
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+                window.addEventListener('scroll', () => this.onScroll());
+
+                // Check WebGL support
+                this.initWebGL();
+            }
+
+            initWebGL() {
+                if (!this.gl) {
+                    this.showError('WebGL 2 not supported');
+                    return;
+                }
+
+                // Check for compressed texture support
+                const ext = this.gl.getExtension('WEBGL_compressed_texture_s3tc');
+                if (ext) {
+                    this.compressedTextureExt = ext;
+                    this.gpuBadge.classList.remove('hidden');
+                    this.gpuBadge.classList.add('success');
+                    this.gpuBadge.textContent = 'GPU';
+                } else {
+                    // Fallback: will need to decompress on CPU
+                    this.gpuBadge.classList.remove('hidden');
+                    this.gpuBadge.classList.add('warning');
+                    this.gpuBadge.textContent = 'CPU';
+                    console.warn('Compressed textures not supported, using CPU fallback');
+                }
+
+                this.setupShaders();
+                this.setupBuffers();
+            }
+
+            setupShaders() {
+                const gl = this.gl;
+
+                // Vertex shader
+                const vsSource = `#version 300 es
+                    in vec2 a_position;
+                    in vec2 a_texCoord;
+                    out vec2 v_texCoord;
+                    void main() {
+                        gl_Position = vec4(a_position, 0.0, 1.0);
+                        v_texCoord = a_texCoord;
+                    }
+                `;
+
+                // Fragment shader with YCoCg->RGB conversion for HapY
+                const fsSource = `#version 300 es
+                    precision highp float;
+                    in vec2 v_texCoord;
+                    out vec4 outColor;
+                    uniform sampler2D u_texture;
+                    uniform int u_format; // 0=DXT1, 1=DXT5, 2=YCoCg
+
+                    void main() {
+                        vec4 color = texture(u_texture, v_texCoord);
+                        
+                        if (u_format == 2) {
+                            // YCoCg to RGB conversion for HapY
+                            float Y = color.a;
+                            float Co = color.r - 0.5;
+                            float Cg = color.g - 0.5;
+                            
+                            float R = Y + Co - Cg;
+                            float G = Y + Cg;
+                            float B = Y - Co - Cg;
+                            
+                            outColor = vec4(R, G, B, 1.0);
+                        } else if (u_format == 0) {
+                            // DXT1 (no alpha)
+                            outColor = vec4(color.rgb, 1.0);
+                        } else {
+                            // DXT5 (RGBA)
+                            outColor = color;
+                        }
+                    }
+                `;
+
+                const vertexShader = this.compileShader(gl.VERTEX_SHADER, vsSource);
+                const fragmentShader = this.compileShader(gl.FRAGMENT_SHADER, fsSource);
+
+                this.program = gl.createProgram();
+                gl.attachShader(this.program, vertexShader);
+                gl.attachShader(this.program, fragmentShader);
+                gl.linkProgram(this.program);
+
+                if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
+                    console.error('Shader link error:', gl.getProgramInfoLog(this.program));
+                }
+            }
+
+            compileShader(type, source) {
+                const gl = this.gl;
+                const shader = gl.createShader(type);
+                gl.shaderSource(shader, source);
+                gl.compileShader(shader);
+
+                if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                    console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+                    gl.deleteShader(shader);
+                    return null;
+                }
+
+                return shader;
+            }
+
+            setupBuffers() {
+                const gl = this.gl;
+
+                // Full-screen quad
+                const positions = new Float32Array([
+                    -1, -1,  0, 1,  // Bottom-left
+                     1, -1,  1, 1,  // Bottom-right
+                    -1,  1,  0, 0,  // Top-left
+                     1,  1,  1, 0,  // Top-right
+                ]);
+
+                this.buffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+                gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+            }
+
+            resize() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                if (this.gl) {
+                    this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+                }
+                if (this.isLoaded) {
+                    this.render();
+                }
+            }
+
+            async loadFile(file) {
+                this.showLoading();
+
+                try {
+                    // Read file as ArrayBuffer
+                    const arrayBuffer = await file.arrayBuffer();
+                    
+                    // Create HAP reader
+                    const startTime = performance.now();
+                    this.reader = new WebHapReader(arrayBuffer);
+                    const loadTime = performance.now() - startTime;
+
+                    // Update stats
+                    this.totalFramesDisplay.textContent = this.reader.frame_count;
+                    this.resolutionDisplay.textContent = `${this.reader.width}x${this.reader.height}`;
+                    this.codecDisplay.textContent = this.reader.codec_type;
+
+                    console.log(`HAP loaded in ${loadTime.toFixed(1)}ms`);
+                    console.log(`Frames: ${this.reader.frame_count}, Resolution: ${this.reader.width}x${this.reader.height}`);
+
+                    this.isLoaded = true;
+                    this.hideLoading();
+                    
+                    // Decode first frame
+                    this.decodeAndRender(0);
+
+                } catch (error) {
+                    this.hideLoading();
+                    this.showError(`Failed to load HAP: ${error}`);
+                    console.error(error);
+                }
+            }
+
+            decodeAndRender(frameIndex) {
+                if (!this.reader) return;
+
+                const startTime = performance.now();
+                
+                try {
+                    const frame = this.reader.read_frame(frameIndex);
+                    const decodeTime = performance.now() - startTime;
+                    
+                    this.decodeTimeDisplay.textContent = `${decodeTime.toFixed(1)}ms`;
+                    this.currentFrame = frameIndex;
+                    this.frameDisplay.textContent = frameIndex + 1;
+
+                    this.uploadTexture(frame);
+                    this.render();
+
+                } catch (error) {
+                    console.error(`Failed to decode frame ${frameIndex}:`, error);
+                }
+            }
+
+            uploadTexture(frame) {
+                const gl = this.gl;
+
+                // Determine format
+                const format = frame.webgl_format;
+                const width = frame.width;
+                const height = frame.height;
+
+                // Calculate block dimensions
+                const blocksX = Math.max(1, Math.floor((width + 3) / 4));
+                const blocksY = Math.max(1, Math.floor((height + 3) / 4));
+                const bytesPerBlock = (format === 0x83F1) ? 8 : 16; // DXT1=8, DXT5=16
+
+                // Delete old texture
+                if (this.texture) {
+                    gl.deleteTexture(this.texture);
+                }
+
+                // Create compressed texture
+                this.texture = gl.createTexture();
+                gl.bindTexture(gl.TEXTURE_2D, this.texture);
+
+                // Set texture parameters
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+                // Upload compressed data
+                const data = frame.data;
+                
+                if (this.compressedTextureExt) {
+                    // Use compressed texture extension
+                    const internalFormat = (format === 0x83F1) ? 
+                        this.compressedTextureExt.COMPRESSED_RGBA_S3TC_DXT1_EXT :
+                        this.compressedTextureExt.COMPRESSED_RGBA_S3TC_DXT5_EXT;
+
+                    gl.compressedTexImage2D(
+                        gl.TEXTURE_2D,
+                        0,  // level
+                        internalFormat,
+                        width,
+                        height,
+                        0,  // border
+                        data
+                    );
+                } else {
+                    // CPU fallback: would need to decompress DXT here
+                    // For now, just show a placeholder
+                    console.warn('CPU decompression not yet implemented');
+                }
+            }
+
+            render() {
+                if (!this.gl || !this.program || !this.texture) return;
+
+                const gl = this.gl;
+
+                gl.clearColor(0.05, 0.05, 0.05, 1.0);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+
+                gl.useProgram(this.program);
+
+                // Bind texture
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, this.texture);
+                gl.uniform1i(gl.getUniformLocation(this.program, 'u_texture'), 0);
+
+                // Set format uniform (0=DXT1, 1=DXT5, 2=YCoCg)
+                const format = this.reader ? 
+                    (this.reader.codec_type === 'HapY' ? 2 : 
+                     this.reader.codec_type === 'Hap1' ? 0 : 1) : 1;
+                gl.uniform1i(gl.getUniformLocation(this.program, 'u_format'), format);
+
+                // Bind vertex buffer
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+
+                const positionLoc = gl.getAttribLocation(this.program, 'a_position');
+                gl.enableVertexAttribArray(positionLoc);
+                gl.vertexAttribPointer(positionLoc, 2, gl.FLOAT, false, 16, 0);
+
+                const texCoordLoc = gl.getAttribLocation(this.program, 'a_texCoord');
+                gl.enableVertexAttribArray(texCoordLoc);
+                gl.vertexAttribPointer(texCoordLoc, 2, gl.FLOAT, false, 16, 8);
+
+                // Draw
+                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+            }
+
+            onScroll() {
+                if (!this.isLoaded || !this.reader) return;
+
+                const scrollTop = window.scrollY;
+                const docHeight = document.body.scrollHeight - window.innerHeight;
+                const scrollProgress = Math.max(0, Math.min(1, scrollTop / docHeight));
+                
+                const frameIndex = Math.floor(scrollProgress * (this.reader.frame_count - 1));
+                
+                if (frameIndex !== this.currentFrame) {
+                    this.decodeAndRender(frameIndex);
+                }
+
+                this.progressBar.style.width = `${scrollProgress * 100}%`;
+            }
+
+            showLoading() {
+                document.getElementById('loading').classList.remove('hidden');
+                document.getElementById('dropZone').classList.add('hidden');
+            }
+
+            hideLoading() {
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('instructions').classList.remove('hidden');
+            }
+
+            showError(message) {
+                const errorEl = document.getElementById('error');
+                document.getElementById('errorText').textContent = message;
+                errorEl.classList.remove('hidden');
+                setTimeout(() => errorEl.classList.add('hidden'), 5000);
+            }
+        }
+
+        // ============================================
+        // Initialization
+        // ============================================
+
+        async function main() {
+            // Initialize WASM
+            document.getElementById('loading').classList.remove('hidden');
+            
+            try {
+                await init();
+                console.log('WASM initialized');
+            } catch (error) {
+                console.error('Failed to initialize WASM:', error);
+                document.getElementById('loading').innerHTML = `
+                    <p>Failed to load WASM module</p>
+                    <p style="font-size: 12px; color: #666;">${error.message}</p>
+                    <p style="font-size: 12px; color: #666; margin-top: 10px;">
+                        Make sure you've run ./build.sh to generate pkg/hap_wasm.js
+                    </p>
+                `;
+                return;
+            }
+
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('dropZone').classList.remove('hidden');
+
+            // Create player
+            const player = new HapWasmPlayer('canvas');
+
+            // File drop handling
+            const dropZone = document.getElementById('dropZone');
+
+            // Prevent default browser drag/drop behavior globally
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                document.body.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }, false);
+            });
+
+            // Highlight drop zone on drag enter/over
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropZone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    dropZone.classList.add('dragover');
+                }, false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropZone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    dropZone.classList.remove('dragover');
+                }, false);
+            });
+
+            // Handle drop
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.classList.remove('dragover');
+                
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                
+                if (files.length > 0) {
+                    const file = files[0];
+                    console.log('Dropped file:', file.name, file.type, file.size);
+                    if (file.name.endsWith('.mov') || file.type === 'video/quicktime') {
+                        player.loadFile(file);
+                    } else {
+                        player.showError(`Expected .mov file, got: ${file.name}`);
+                    }
+                }
+            });
+
+            // Click to select file
+            dropZone.addEventListener('click', (e) => {
+                // Prevent triggering if clicking child elements
+                if (e.target !== dropZone && !dropZone.contains(e.target)) return;
+                
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.mov,video/quicktime';
+                input.style.display = 'none';
+                
+                input.addEventListener('change', (e) => {
+                    if (e.target.files && e.target.files[0]) {
+                        const file = e.target.files[0];
+                        console.log('Selected file:', file.name, file.type, file.size);
+                        player.loadFile(file);
+                    }
+                });
+                
+                // Must append to body for some browsers
+                document.body.appendChild(input);
+                input.click();
+                
+                // Cleanup
+                setTimeout(() => {
+                    document.body.removeChild(input);
+                }, 100);
+            });
+
+            // Also handle paste from clipboard
+            document.addEventListener('paste', (e) => {
+                const items = e.clipboardData.items;
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].kind === 'file') {
+                        const file = items[i].getAsFile();
+                        if (file && file.name.endsWith('.mov')) {
+                            player.loadFile(file);
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
+        main().catch(err => {
+            console.error('Main function failed:', err);
+            document.getElementById('loading').innerHTML = `
+                <p>Failed to start</p>
+                <p style="font-size: 12px; color: #666;">${err.message}</p>
+            `;
+        });
+    </script>
+</body>
+</html>

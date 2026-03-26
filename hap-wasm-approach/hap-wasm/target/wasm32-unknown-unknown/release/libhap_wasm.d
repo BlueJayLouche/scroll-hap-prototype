@@ -1,0 +1,1 @@
+/Users/ac/developer/rust/scroll-hap-prototype/hap-wasm-approach/hap-wasm/target/wasm32-unknown-unknown/release/libhap_wasm.rlib: /Users/ac/developer/rust/hap-rs/hap-parser/src/lib.rs /Users/ac/developer/rust/scroll-hap-prototype/hap-wasm-approach/hap-wasm/src/lib.rs
