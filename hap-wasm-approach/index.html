@@ -257,12 +257,95 @@
 
     <div class="scroll-spacer"></div>
 
+    <!-- Non-module script for event listeners that must always work -->
+    <script>
+        (function() {
+            let player = null;
+            // Expose setter for the module script to use once WASM is ready
+            window.__setPlayer = function(p) { player = p; };
+
+            function handleFile(file) {
+                if (!player) {
+                    alert('WASM module is still loading — please wait and try again.');
+                    return;
+                }
+                player.loadFile(file);
+            }
+
+            // Prevent browser from opening dropped files
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+                document.addEventListener(evt, (e) => e.preventDefault(), false);
+            });
+
+            const dropZone = document.getElementById('dropZone');
+            const fileInput = document.getElementById('fileInput');
+            const selectBtn = document.getElementById('selectFileBtn');
+
+            // Drop zone drag events
+            dropZone.addEventListener('dragenter', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+            });
+            dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+
+            // Handle drop
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    handleFile(files[0]);
+                }
+            });
+
+            // File select button
+            selectBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                fileInput.click();
+            });
+
+            // Drop zone click (background only)
+            dropZone.addEventListener('click', (e) => {
+                if (e.target === dropZone) {
+                    fileInput.click();
+                }
+            });
+
+            // File input change
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    handleFile(e.target.files[0]);
+                    fileInput.value = '';
+                }
+            });
+
+            // Paste from clipboard
+            document.addEventListener('paste', (e) => {
+                const items = e.clipboardData.items;
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].kind === 'file') {
+                        const file = items[i].getAsFile();
+                        if (file && file.name.endsWith('.mov')) {
+                            handleFile(file);
+                            break;
+                        }
+                    }
+                }
+            });
+        })();
+    </script>
+
     <script type="module">
         // ============================================
         // Scroll-Scrub HAP Video Player (WASM)
         // ============================================
 
-        import init, { WebHapReader, wasm_log, check_compressed_texture_support } from './pkg/hap_wasm.js';
+        // Dynamic import so a missing WASM module doesn't kill the entire script
+        let init, WebHapReader, wasm_log, check_compressed_texture_support;
 
         class HapWasmPlayer {
             constructor(canvasId) {
@@ -601,21 +684,22 @@
         }
 
         // ============================================
-        // Initialization
+        // WASM Initialization (dynamic import)
         // ============================================
 
         async function main() {
-            // Initialize WASM
             const loadingEl = document.getElementById('loading');
             loadingEl.classList.remove('hidden');
-            
-            // First check if WASM files exist
+
+            // Dynamic import so failure doesn't kill the whole module
             try {
-                const response = await fetch('./pkg/hap_wasm.js');
-                if (!response.ok) {
-                    throw new Error('WASM files not found');
-                }
+                const module = await import('./hap-wasm/pkg/hap_wasm.js');
+                init = module.default;
+                WebHapReader = module.WebHapReader;
+                wasm_log = module.wasm_log;
+                check_compressed_texture_support = module.check_compressed_texture_support;
             } catch (e) {
+                console.error('Failed to import WASM module:', e);
                 loadingEl.innerHTML = `
                     <p style="color: #f87171;">❌ WASM module not built</p>
                     <div style="margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px; text-align: left;">
@@ -630,12 +714,12 @@
                 `;
                 return;
             }
-            
+
             loadingEl.innerHTML = `
                 <div class="loading-spinner"></div>
                 <p>Loading HAP decoder...</p>
             `;
-            
+
             try {
                 await init();
                 console.log('✅ WASM initialized successfully');
@@ -662,74 +746,9 @@
             document.getElementById('loading').classList.add('hidden');
             document.getElementById('dropZone').classList.remove('hidden');
 
-            // Create player
+            // Create player and expose it to the event handlers
             const player = new HapWasmPlayer('canvas');
-
-            // File handling
-            const dropZone = document.getElementById('dropZone');
-            const fileInput = document.getElementById('fileInput');
-            const selectBtn = document.getElementById('selectFileBtn');
-
-            // CRITICAL: Prevent ALL default drag/drop behavior on document/window
-            const preventDefault = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            };
-            
-            // Block on document and window with capture
-            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
-                document.addEventListener(evt, preventDefault, true);
-                window.addEventListener(evt, preventDefault, true);
-            });
-
-            // Drop zone highlight
-            dropZone.addEventListener('dragenter', () => dropZone.classList.add('dragover'));
-            dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-            
-            // Handle drop
-            dropZone.addEventListener('drop', (e) => {
-                dropZone.classList.remove('dragover');
-                const files = e.dataTransfer.files;
-                if (files.length > 0) {
-                    player.loadFile(files[0]);
-                }
-            });
-
-            // File select button
-            selectBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                fileInput.click();
-            });
-            
-            // Drop zone click (background only)
-            dropZone.addEventListener('click', (e) => {
-                if (e.target === dropZone) {
-                    fileInput.click();
-                }
-            });
-
-            // File input change
-            fileInput.addEventListener('change', (e) => {
-                if (e.target.files && e.target.files[0]) {
-                    player.loadFile(e.target.files[0]);
-                    fileInput.value = ''; // Reset for re-select
-                }
-            });
-
-            // Also handle paste from clipboard
-            document.addEventListener('paste', (e) => {
-                const items = e.clipboardData.items;
-                for (let i = 0; i < items.length; i++) {
-                    if (items[i].kind === 'file') {
-                        const file = items[i].getAsFile();
-                        if (file && file.name.endsWith('.mov')) {
-                            player.loadFile(file);
-                            break;
-                        }
-                    }
-                }
-            });
+            window.__setPlayer(player);
         }
 
         main().catch(err => {

@@ -214,18 +214,39 @@ impl WebHapReader {
         while pos < file_size {
             cursor.seek(SeekFrom::Start(pos)).map_err(|e| e.to_string())?;
 
-            let size = cursor.read_u32::<BigEndian>().map_err(|e| e.to_string())? as u64;
+            if file_size - pos < 8 {
+                break;
+            }
+
+            let size_field = cursor.read_u32::<BigEndian>().map_err(|e| e.to_string())? as u64;
             let mut type_buf = [0u8; 4];
             cursor.read_exact(&mut type_buf).map_err(|e| e.to_string())?;
             let atom_type = String::from_utf8_lossy(&type_buf);
 
-            if size == 0 || size > file_size - pos {
+            // Handle atom sizes per QuickTime spec:
+            // size == 0: atom extends to end of file
+            // size == 1: extended size (64-bit) follows the type field
+            // size > 1: standard size (includes the 8-byte header)
+            let (actual_size, header_size) = if size_field == 0 {
+                // Atom extends to end of file
+                (file_size - pos, 8u64)
+            } else if size_field == 1 {
+                // Extended size
+                let extended = cursor.read_u64::<BigEndian>().map_err(|e| e.to_string())?;
+                (extended, 16u64)
+            } else {
+                (size_field, 8u64)
+            };
+
+            if actual_size < header_size || actual_size > file_size - pos {
                 break;
             }
 
+            let data_size = (actual_size - header_size) as usize;
+
             match atom_type.as_ref() {
                 "moov" => {
-                    let mut data = vec![0u8; (size - 8) as usize];
+                    let mut data = vec![0u8; data_size];
                     cursor.read_exact(&mut data).map_err(|e| e.to_string())?;
                     moov_data = Some(data);
                 }
@@ -235,7 +256,7 @@ impl WebHapReader {
                 _ => {}
             }
 
-            pos += size;
+            pos += actual_size;
         }
 
         let moov_data = moov_data.ok_or("No moov atom found")?;
