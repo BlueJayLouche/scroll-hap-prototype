@@ -179,6 +179,25 @@
             background: #92400e;
             color: #fbbf24;
         }
+
+        .back-link {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px 16px;
+            border-radius: 8px;
+            color: #fff;
+            text-decoration: none;
+            font-size: 14px;
+            z-index: 101;
+            transition: all 0.2s;
+            backdrop-filter: blur(10px);
+        }
+
+        .back-link:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
     </style>
 </head>
 <body>
@@ -194,11 +213,14 @@
         <p id="errorText">Something went wrong</p>
     </div>
 
+    <!-- Hidden file input -->
+    <input type="file" id="fileInput" accept=".mov,.hap" style="display:none">
+
     <!-- Drop Zone -->
     <div id="dropZone" class="drop-zone">
         <h2>🎬 Drop a HAP .mov file</h2>
         <p style="margin: 15px 0;">or</p>
-        <button id="selectFileBtn" style="padding: 12px 24px; background: #60a5fa; color: #000; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;">
+        <button id="selectFileBtn" type="button" style="padding: 12px 24px; background: #60a5fa; color: #000; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;">
             Select File
         </button>
         <p style="margin-top: 20px; font-size: 12px; color: #666;">
@@ -210,6 +232,9 @@
     <div class="hero-container">
         <canvas id="canvas"></canvas>
     </div>
+
+    <!-- Back Link -->
+    <a href="/" class="back-link">← Back to Selection</a>
 
     <!-- Overlay Stats -->
     <div class="overlay">
@@ -640,106 +665,55 @@
             // Create player
             const player = new HapWasmPlayer('canvas');
 
-            // File drop handling
+            // File handling
             const dropZone = document.getElementById('dropZone');
+            const fileInput = document.getElementById('fileInput');
+            const selectBtn = document.getElementById('selectFileBtn');
 
-            // Prevent default browser drag/drop behavior globally
-            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-                document.body.addEventListener(eventName, (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }, false);
-            });
-
-            // Highlight drop zone on drag enter/over
-            ['dragenter', 'dragover'].forEach(eventName => {
-                dropZone.addEventListener(eventName, (e) => {
-                    e.preventDefault();
-                    dropZone.classList.add('dragover');
-                }, false);
-            });
-
-            ['dragleave', 'drop'].forEach(eventName => {
-                dropZone.addEventListener(eventName, (e) => {
-                    e.preventDefault();
-                    dropZone.classList.remove('dragover');
-                }, false);
-            });
-
-            // Handle drop
-            dropZone.addEventListener('drop', (e) => {
-                console.log('Drop event fired');
+            // CRITICAL: Prevent ALL default drag/drop behavior on document/window
+            const preventDefault = (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                return false;
+            };
+            
+            // Block on document and window with capture
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+                document.addEventListener(evt, preventDefault, true);
+                window.addEventListener(evt, preventDefault, true);
+            });
+
+            // Drop zone highlight
+            dropZone.addEventListener('dragenter', () => dropZone.classList.add('dragover'));
+            dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+            
+            // Handle drop
+            dropZone.addEventListener('drop', (e) => {
                 dropZone.classList.remove('dragover');
-                
-                const dt = e.dataTransfer;
-                const files = dt.files;
-                
-                console.log('Files in drop:', files.length);
-                
+                const files = e.dataTransfer.files;
                 if (files.length > 0) {
-                    const file = files[0];
-                    console.log('Dropped file:', file.name, 'type:', file.type, 'size:', file.size);
-                    
-                    // Accept .mov files or any file (for testing)
-                    if (file.name.endsWith('.mov') || file.name.endsWith('.hap')) {
-                        console.log('Loading HAP file...');
-                        player.loadFile(file);
-                    } else {
-                        console.warn('Not a .mov file, but trying anyway:', file.name);
-                        player.showError(`Expected .mov file, got: ${file.name}. Trying anyway...`);
-                        player.loadFile(file);
-                    }
-                } else {
-                    console.warn('No files in drop');
+                    player.loadFile(files[0]);
                 }
             });
 
-            // Create persistent file input
-            const fileInput = document.createElement('input');
-            fileInput.type = 'file';
-            fileInput.accept = '.mov,.hap,video/quicktime';
-            fileInput.style.position = 'absolute';
-            fileInput.style.left = '-9999px';
-            fileInput.id = 'fileInput';
-            document.body.appendChild(fileInput);
-            
-            fileInput.addEventListener('change', (e) => {
-                console.log('File input change event fired');
-                if (e.target.files && e.target.files[0]) {
-                    const file = e.target.files[0];
-                    console.log('Selected file:', file.name, file.type, file.size);
-                    player.loadFile(file);
-                } else {
-                    console.log('No file selected');
-                }
-                // Reset input so same file can be selected again
-                e.target.value = '';
-            });
-            
-            // Click to select file (from drop zone or button)
-            dropZone.addEventListener('click', (e) => {
-                console.log('Drop zone clicked, triggering file input');
+            // File select button
+            selectBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
                 fileInput.click();
             });
             
-            // Button click handler
-            const selectBtn = document.getElementById('selectFileBtn');
-            if (selectBtn) {
-                selectBtn.addEventListener('click', (e) => {
-                    console.log('Select button clicked');
-                    e.stopPropagation(); // Prevent triggering dropZone click twice
+            // Drop zone click (background only)
+            dropZone.addEventListener('click', (e) => {
+                if (e.target === dropZone) {
                     fileInput.click();
-                });
-            }
-            
-            // Also prevent canvas from capturing clicks when dropZone is visible
-            const canvas = document.getElementById('canvas');
-            canvas.addEventListener('click', (e) => {
-                if (!dropZone.classList.contains('hidden')) {
-                    e.preventDefault();
-                    e.stopPropagation();
+                }
+            });
+
+            // File input change
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    player.loadFile(e.target.files[0]);
+                    fileInput.value = ''; // Reset for re-select
                 }
             });
 

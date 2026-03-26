@@ -145,6 +145,25 @@
             width: 0%;
             transition: width 0.1s linear;
         }
+
+        .back-link {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px 16px;
+            border-radius: 8px;
+            color: #fff;
+            text-decoration: none;
+            font-size: 14px;
+            z-index: 101;
+            transition: all 0.2s;
+            backdrop-filter: blur(10px);
+        }
+
+        .back-link:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
     </style>
 </head>
 <body>
@@ -168,6 +187,9 @@
     <div class="hero-container">
         <canvas id="canvas"></canvas>
     </div>
+
+    <!-- Back Link -->
+    <a href="/" class="back-link">← Back to Selection</a>
 
     <!-- Overlay Stats -->
     <div class="overlay">
