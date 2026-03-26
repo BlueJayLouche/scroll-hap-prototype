@@ -4,22 +4,25 @@ A comparison of two approaches for scroll-driven video animation on the web.
 
 ## Quick Start
 
-### Option 1: WebP Sequence (Simplest)
-
 ```bash
-cd webp-approach
-python3 -m http.server 8080
+./serve.sh
 # Open http://localhost:8080
 ```
+
+This starts a local server with the correct WASM MIME types and CORS headers needed for the HAP approach. You can optionally pass a port: `./serve.sh 3000`
+
+### Option 1: WebP Sequence (Simplest)
+
+Open http://localhost:8080/webp-approach/
 
 ### Option 2: HAP + WASM (GPU-accelerated)
 
 ```bash
 cd hap-wasm-approach
 ./build.sh  # Builds the WASM module
-python3 -m http.server 8080
-# Open http://localhost:8080
 ```
+
+Then open http://localhost:8080/hap-wasm-approach/
 
 ## Approaches Compared
 
